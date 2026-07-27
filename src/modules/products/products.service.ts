@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, ProductStatus } from '@prisma/client';
-import { paginate } from '../../common/dto/pagination.dto';
+import { paginate, resolvePagination } from '../../common/dto/pagination.dto';
 import { generateSku, slugify } from '../../common/utils/slug.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -61,25 +61,63 @@ export class ProductsService {
   }
 
   async findAll(query: QueryProductDto) {
-    const page = query.page || 1;
-    const limit = query.limit || 20;
+    const { page, limit, search, sortBy: defaultSortBy, sortOrder: defaultSortOrder } =
+      resolvePagination(query);
     const skip = (page - 1) * limit;
+
+    let sortBy = defaultSortBy;
+    let sortOrder = defaultSortOrder;
+    let isFeatured = query.isFeatured;
+
+    switch (query.sort) {
+      case 'featured':
+        isFeatured = true;
+        sortBy = 'createdAt';
+        sortOrder = 'desc';
+        break;
+      case 'price-asc':
+        sortBy = 'price';
+        sortOrder = 'asc';
+        break;
+      case 'price-desc':
+        sortBy = 'price';
+        sortOrder = 'desc';
+        break;
+      case 'rating':
+        sortBy = 'averageRating';
+        sortOrder = 'desc';
+        break;
+      case 'newest':
+        sortBy = 'createdAt';
+        sortOrder = 'desc';
+        break;
+      default:
+        break;
+    }
 
     const where: Prisma.ProductWhereInput = {
       deletedAt: null,
-      ...(query.search
+      ...(search
         ? {
             OR: [
-              { name: { contains: query.search, mode: 'insensitive' } },
-              { sku: { contains: query.search, mode: 'insensitive' } },
-              { description: { contains: query.search, mode: 'insensitive' } },
+              { name: { contains: search, mode: 'insensitive' } },
+              { sku: { contains: search, mode: 'insensitive' } },
+              { description: { contains: search, mode: 'insensitive' } },
             ],
           }
         : {}),
-      ...(query.categoryId ? { categoryId: query.categoryId } : {}),
-      ...(query.brandId ? { brandId: query.brandId } : {}),
+      ...(query.category
+        ? { category: { slug: query.category, deletedAt: null } }
+        : query.categoryId
+          ? { categoryId: query.categoryId }
+          : {}),
+      ...(query.brand
+        ? { brand: { slug: query.brand, deletedAt: null } }
+        : query.brandId
+          ? { brandId: query.brandId }
+          : {}),
       ...(query.status ? { status: query.status } : {}),
-      ...(query.isFeatured !== undefined ? { isFeatured: query.isFeatured } : {}),
+      ...(isFeatured !== undefined ? { isFeatured } : {}),
       ...(query.tag ? { tags: { has: query.tag } } : {}),
       ...(query.minPrice !== undefined || query.maxPrice !== undefined
         ? {
@@ -96,7 +134,7 @@ export class ProductsService {
         where,
         skip,
         take: limit,
-        orderBy: { [query.sortBy || 'createdAt']: query.sortOrder || 'desc' },
+        orderBy: { [sortBy]: sortOrder },
         include: {
           category: true,
           brand: true,

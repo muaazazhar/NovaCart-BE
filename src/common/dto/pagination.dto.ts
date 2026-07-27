@@ -18,10 +18,25 @@ export class PaginationDto {
   @Max(100)
   limit?: number = 20;
 
+  /** Storefront alias for `limit` */
+  @ApiPropertyOptional({ description: 'Alias for limit (storefront)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   search?: string;
+
+  /** Storefront alias for `search` */
+  @ApiPropertyOptional({ description: 'Alias for search (storefront)' })
+  @IsOptional()
+  @IsString()
+  q?: string;
 
   @ApiPropertyOptional({ default: 'createdAt' })
   @IsOptional()
@@ -32,6 +47,16 @@ export class PaginationDto {
   @IsOptional()
   @IsString()
   sortOrder?: 'asc' | 'desc' = 'desc';
+}
+
+export function resolvePagination(query: PaginationDto) {
+  return {
+    page: query.page ?? 1,
+    limit: query.limit ?? query.pageSize ?? 20,
+    search: query.search ?? query.q,
+    sortBy: query.sortBy ?? 'createdAt',
+    sortOrder: (query.sortOrder ?? 'desc') as 'asc' | 'desc',
+  };
 }
 
 export interface PaginatedResult<T> {

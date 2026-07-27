@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { paginate, PaginationDto } from '../../common/dto/pagination.dto';
+import { paginate, PaginationDto, resolvePagination } from '../../common/dto/pagination.dto';
 import { slugify } from '../../common/utils/slug.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateBrandDto } from './dto/create-brand.dto';
@@ -22,12 +22,11 @@ export class BrandsService {
   }
 
   async findAll(query: PaginationDto) {
-    const page = query.page || 1;
-    const limit = query.limit || 20;
+    const { page, limit, search } = resolvePagination(query);
     const skip = (page - 1) * limit;
     const where: Prisma.BrandWhereInput = {
       deletedAt: null,
-      ...(query.search ? { name: { contains: query.search, mode: 'insensitive' as const } } : {}),
+      ...(search ? { name: { contains: search, mode: 'insensitive' as const } } : {}),
     };
 
     const [data, total] = await Promise.all([

@@ -5,6 +5,24 @@ import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString } from 'class-validat
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class QueryProductDto extends PaginationDto {
+  /** Storefront sort: featured | price-asc | price-desc | rating | newest */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  sort?: string;
+
+  /** Storefront category slug (alias for categoryId) */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  /** Storefront brand slug (alias for brandId) */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  brand?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { paginate, PaginationDto } from '../../common/dto/pagination.dto';
+import { paginate, PaginationDto, resolvePagination } from '../../common/dto/pagination.dto';
 import { slugify } from '../../common/utils/slug.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
@@ -28,13 +28,12 @@ export class CategoriesService {
   }
 
   async findAll(query: PaginationDto) {
-    const page = query.page || 1;
-    const limit = query.limit || 20;
+    const { page, limit, search } = resolvePagination(query);
     const skip = (page - 1) * limit;
     const where: Prisma.CategoryWhereInput = {
       deletedAt: null,
-      ...(query.search
-        ? { name: { contains: query.search, mode: 'insensitive' as const } }
+      ...(search
+        ? { name: { contains: search, mode: 'insensitive' as const } }
         : {}),
     };
 
