@@ -42,6 +42,19 @@ export const BRANDS = [
   { name: 'TrailBound', website: 'https://trailbound.example.com', description: 'Outdoor expedition gear' },
 ];
 
+export const PRODUCT_PRICE_RANGES: Record<string, [number, number]> = {
+  Electronics: [49, 899],
+  Fashion: [28, 220],
+  'Home & Living': [18, 349],
+  'Beauty & Personal Care': [12, 78],
+  'Sports & Outdoors': [19, 189],
+  'Books & Media': [12, 42],
+  'Toys & Games': [15, 89],
+  Automotive: [14, 149],
+  'Grocery & Gourmet': [6, 48],
+  'Health & Wellness': [14, 64],
+};
+
 export const PRODUCT_TEMPLATES: Record<string, string[]> = {
   Electronics: [
     'Wireless Noise-Cancelling Headphones', 'Ultra Slim Laptop 14"', 'Smartwatch Pro Series',

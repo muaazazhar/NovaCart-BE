@@ -9,6 +9,7 @@ import {
   COUPON_DEFS,
   FIRST_NAMES,
   LAST_NAMES,
+  PRODUCT_PRICE_RANGES,
   PRODUCT_TEMPLATES,
   REVIEW_COMMENTS,
   seededRandom,
@@ -255,22 +256,23 @@ async function seedCatalog() {
   let productIndex = 0;
   for (const category of categories) {
     const templates = PRODUCT_TEMPLATES[category.name] || ['Premium Product'];
-    for (let t = 0; t < 10; t++) {
+    const [minPrice, maxPrice] = PRODUCT_PRICE_RANGES[category.name] ?? [12, 120];
+    // One product per template — clean names without trailing seed indices.
+    for (let t = 0; t < templates.length; t++) {
       productIndex += 1;
-      const baseName = templates[t % templates.length];
-      const name = `${baseName} ${productIndex}`;
+      const name = templates[t];
       const brand = brands[productIndex % brands.length];
-      const price = money(12, 499);
-      const compareAt = rand() > 0.5 ? Number((price * (1.1 + rand() * 0.4)).toFixed(2)) : null;
-      const imageCount = 4 + Math.floor(rand() * 5); // 4-8
+      const price = money(minPrice, maxPrice);
+      const compareAt = rand() > 0.5 ? Number((price * (1.1 + rand() * 0.35)).toFixed(2)) : null;
+      const imageCount = 3 + Math.floor(rand() * 3); // 3-5
       const images = getProductImageUrls(category.name, productIndex, imageCount);
 
       const product = await prisma.product.create({
         data: {
           name,
-          slug: slugify(`${name}-${productIndex}`),
-          description: `${baseName} crafted for everyday performance. Designed with durable materials, thoughtful details, and a finish that fits modern lifestyles. Ideal for customers who want reliable quality without compromise.`,
-          shortDescription: `Premium ${baseName.toLowerCase()} with standout quality.`,
+          slug: slugify(`${name}-${category.slug || category.name}`),
+          description: `${name} crafted for everyday performance. Designed with durable materials, thoughtful details, and a finish that fits modern lifestyles. Ideal for customers who want reliable quality without compromise.`,
+          shortDescription: `Shop ${name} — curated for NovaCart.`,
           sku: `NC-${String(productIndex).padStart(5, '0')}`,
           price,
           compareAtPrice: compareAt,

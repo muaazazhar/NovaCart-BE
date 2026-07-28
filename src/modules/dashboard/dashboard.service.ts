@@ -7,6 +7,11 @@ export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getOverview() {
+    const now = new Date();
+    const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+
     const [
       totalUsers,
       totalProducts,
@@ -14,10 +19,16 @@ export class DashboardService {
       revenueAgg,
       pendingOrders,
       recentOrders,
-      topProducts,
+      topProductRows,
       salesByStatus,
       monthlySales,
       lowStock,
+      thisMonthOrders,
+      lastMonthOrders,
+      thisMonthRevenue,
+      lastMonthRevenue,
+      thisMonthCustomers,
+      lastMonthCustomers,
     ] = await Promise.all([
       this.prisma.user.count({ where: { deletedAt: null } }),
       this.prisma.product.count({ where: { deletedAt: null, status: ProductStatus.ACTIVE } }),
@@ -57,26 +68,85 @@ export class DashboardService {
           lowStockThreshold: true,
         },
       }),
+      this.prisma.order.count({ where: { createdAt: { gte: startOfThisMonth } } }),
+      this.prisma.order.count({
+        where: { createdAt: { gte: startOfLastMonth, lte: endOfLastMonth } },
+      }),
+      this.prisma.order.aggregate({
+        where: { paymentStatus: 'PAID', createdAt: { gte: startOfThisMonth } },
+        _sum: { total: true },
+      }),
+      this.prisma.order.aggregate({
+        where: {
+          paymentStatus: 'PAID',
+          createdAt: { gte: startOfLastMonth, lte: endOfLastMonth },
+        },
+        _sum: { total: true },
+      }),
+      this.prisma.user.count({
+        where: { deletedAt: null, createdAt: { gte: startOfThisMonth } },
+      }),
+      this.prisma.user.count({
+        where: {
+          deletedAt: null,
+          createdAt: { gte: startOfLastMonth, lte: endOfLastMonth },
+        },
+      }),
     ]);
+
+    const totalRevenue = Number(revenueAgg._sum.total || 0);
+    const topProducts = topProductRows.map((product) => ({
+      ...product,
+      units: product.soldCount,
+      revenue: Number(product.price) * product.soldCount,
+    }));
+
+    const conversionRate =
+      totalUsers > 0 ? Number(((totalOrders / totalUsers) * 100).toFixed(2)) : 0;
+    const lastMonthConversion =
+      lastMonthCustomers > 0
+        ? Number(((lastMonthOrders / lastMonthCustomers) * 100).toFixed(2))
+        : 0;
+    const thisMonthConversion =
+      thisMonthCustomers > 0
+        ? Number(((thisMonthOrders / thisMonthCustomers) * 100).toFixed(2))
+        : conversionRate;
 
     return {
       message: 'Dashboard overview',
       data: {
         kpis: {
           totalUsers,
+          totalCustomers: totalUsers,
           totalProducts,
           totalOrders,
-          totalRevenue: Number(revenueAgg._sum.total || 0),
+          totalRevenue,
           pendingOrders,
           lowStockCount: lowStock.filter((p) => p.stock <= p.lowStockThreshold).length,
+          conversionRate,
+          revenueChange: this.pctChange(
+            Number(thisMonthRevenue._sum.total || 0),
+            Number(lastMonthRevenue._sum.total || 0),
+          ),
+          ordersChange: this.pctChange(thisMonthOrders, lastMonthOrders),
+          customersChange: this.pctChange(thisMonthCustomers, lastMonthCustomers),
+          conversionChange: this.pctChange(thisMonthConversion, lastMonthConversion),
         },
         recentOrders,
         topProducts,
-        salesByStatus,
+        salesByStatus: salesByStatus.map((row) => ({
+          status: row.status,
+          count: row._count.status,
+        })),
         monthlySales,
         lowStockProducts: lowStock.filter((p) => p.stock <= p.lowStockThreshold),
       },
     };
+  }
+
+  private pctChange(current: number, previous: number): number | null {
+    if (previous <= 0) return current > 0 ? 100 : null;
+    return Number((((current - previous) / previous) * 100).toFixed(1));
   }
 
   private async getMonthlySales() {
