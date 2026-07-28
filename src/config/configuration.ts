@@ -3,6 +3,7 @@ export default () => ({
   port: parseInt(process.env.PORT || '3000', 10),
   appName: process.env.APP_NAME || 'NovaCart',
   appUrl: process.env.APP_URL || 'http://localhost:3000',
+  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
   apiPrefix: process.env.API_PREFIX || 'api/v1',
   database: {
     url: process.env.DATABASE_URL,
@@ -26,6 +27,11 @@ export default () => ({
     origins: (process.env.CORS_ORIGINS || 'http://localhost:3000').split(','),
   },
   logLevel: process.env.LOG_LEVEL || 'info',
+  mail: {
+    apiKey: process.env.RESEND_API_KEY || '',
+    from: process.env.MAIL_FROM || 'NovaCart <noreply@novacart.app>',
+    supportEmail: process.env.MAIL_SUPPORT_EMAIL || 'support@novacart.app',
+  },
   ai: {
     apiKey: process.env.OPENAI_API_KEY || '',
     model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',

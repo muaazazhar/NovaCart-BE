@@ -80,7 +80,9 @@ npm run start:dev
 | Role | Email | Password |
 |------|-------|----------|
 | Super Admin | admin@novacart.com | Admin@123456 |
-| Customer | james.smith1@example.com | Customer@123 |
+| Customer | michael.miller7@example.com | Customer@123 |
+
+All seeded accounts are email-verified by default. New self-registered users must verify email before login.
 
 ## Seed data
 
@@ -122,8 +124,8 @@ postman/
 | Script | Description |
 |--------|-------------|
 | `npm run start:dev` | Dev server with watch |
-| `npm run build` | Production build |
-| `npm run start:prod` | Run compiled app |
+| `npm run build` | Production build + apply migrations |
+| `npm run start:prod` | Migrate then run compiled app |
 | `npm run db:setup` | Migrate + seed PostgreSQL |
 | `npm run prisma:migrate` | Create/apply migrations |
 | `npm run prisma:seed` | Seed demo data |

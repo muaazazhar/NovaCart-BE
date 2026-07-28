@@ -85,6 +85,11 @@ enum BannerPosition {
   POPUP
 }
 
+enum AuthTokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
 model User {
   id              String    @id @default(cuid())
   email           String    @unique
@@ -104,6 +109,7 @@ model User {
   role   Role   @relation(fields: [roleId], references: [id])
 
   refreshTokens RefreshToken[]
+  authTokens    AuthToken[]
   addresses     Address[]
   reviews       Review[]
   wishlistItems WishlistItem[]
@@ -116,6 +122,23 @@ model User {
   @@index([roleId])
   @@index([isActive])
   @@map("users")
+}
+
+model AuthToken {
+  id        String        @id @default(cuid())
+  userId    String        @map("user_id")
+  token     String        @unique
+  type      AuthTokenType
+  expiresAt DateTime      @map("expires_at")
+  usedAt    DateTime?     @map("used_at")
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([expiresAt])
+  @@map("auth_tokens")
 }
 
 model Role {

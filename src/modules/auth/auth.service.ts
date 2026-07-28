@@ -1,37 +1,49 @@
 import {
+  BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { RoleName } from '@prisma/client';
+import { AuthTokenType, RoleName } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { Request } from 'express';
 import { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { EmailService } from '../email/email.service';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly activityLogsService: ActivityLogsService,
+    private readonly emailService: EmailService,
   ) {}
 
   async register(dto: RegisterDto) {
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
+    const existing = await this.prisma.user.findUnique({
+      where: { email: dto.email.toLowerCase() },
+    });
     if (existing) {
       throw new ConflictException('Email already registered');
     }
 
-    const customerRole = await this.prisma.role.findUnique({ where: { name: RoleName.CUSTOMER } });
+    const customerRole = await this.prisma.role.findUnique({
+      where: { name: RoleName.CUSTOMER },
+    });
     if (!customerRole) {
       throw new ConflictException('Customer role not configured');
     }
@@ -45,6 +57,7 @@ export class AuthService {
         lastName: dto.lastName,
         phone: dto.phone,
         roleId: customerRole.id,
+        isEmailVerified: false,
         cart: { create: {} },
       },
       include: { role: true },
@@ -58,12 +71,14 @@ export class AuthService {
       description: `User registered: ${user.email}`,
     });
 
-    const tokens = await this.issueTokens(user.id, user.email, user.role.name, []);
+    await this.issueAndSendVerification(user.id, user.email, user.firstName);
+
     return {
-      message: 'Registration successful',
+      message: 'Registration successful. Please verify your email before signing in.',
       data: {
+        email: user.email,
+        requiresVerification: true,
         user: this.sanitizeUser(user),
-        ...tokens,
       },
     };
   }
@@ -74,8 +89,25 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const permissions = user.role.rolePermissions.map((rp: { permission: { name: string } }) => rp.permission.name);
-    const tokens = await this.issueTokens(user.id, user.email, user.role.name, permissions, req);
+    if (!user.isEmailVerified) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        error: 'EMAIL_NOT_VERIFIED',
+        message: 'Please verify your email before signing in.',
+        email: user.email,
+      });
+    }
+
+    const permissions = user.role.rolePermissions.map(
+      (rp: { permission: { name: string } }) => rp.permission.name,
+    );
+    const tokens = await this.issueTokens(
+      user.id,
+      user.email,
+      user.role.name,
+      permissions,
+      req,
+    );
 
     await this.prisma.user.update({
       where: { id: user.id },
@@ -134,6 +166,15 @@ export class AuthService {
 
     if (!stored || stored.isRevoked || stored.expiresAt < new Date()) {
       throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    if (!stored.user.isEmailVerified) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        error: 'EMAIL_NOT_VERIFIED',
+        message: 'Please verify your email before signing in.',
+        email: stored.user.email,
+      });
     }
 
     await this.prisma.refreshToken.update({
@@ -208,6 +249,225 @@ export class AuthService {
     return { message: 'Profile retrieved', data: this.sanitizeUser(user) };
   }
 
+  async resendVerification(email: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { email: email.toLowerCase(), deletedAt: null, isActive: true },
+    });
+
+    // Avoid account enumeration
+    if (!user) {
+      return {
+        message: 'If an account exists for that email, a verification link has been sent.',
+        data: { email: email.toLowerCase() },
+      };
+    }
+
+    if (user.isEmailVerified) {
+      return {
+        message: 'This email is already verified. You can sign in.',
+        data: { email: user.email, alreadyVerified: true },
+      };
+    }
+
+    await this.issueAndSendVerification(user.id, user.email, user.firstName);
+
+    return {
+      message: 'If an account exists for that email, a verification link has been sent.',
+      data: { email: user.email },
+    };
+  }
+
+  async verifyEmail(token: string) {
+    const record = await this.findValidToken(token, AuthTokenType.EMAIL_VERIFICATION);
+
+    const user = await this.prisma.user.update({
+      where: { id: record.userId },
+      data: { isEmailVerified: true },
+      include: {
+        role: {
+          include: {
+            rolePermissions: { include: { permission: true } },
+          },
+        },
+      },
+    });
+
+    await this.prisma.authToken.update({
+      where: { id: record.id },
+      data: { usedAt: new Date() },
+    });
+
+    await this.prisma.authToken.updateMany({
+      where: {
+        userId: user.id,
+        type: AuthTokenType.EMAIL_VERIFICATION,
+        usedAt: null,
+      },
+      data: { usedAt: new Date() },
+    });
+
+    try {
+      await this.emailService.sendWelcomeEmail({
+        to: user.email,
+        firstName: user.firstName,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Welcome email failed for ${user.email}: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+
+    const permissions = user.role.rolePermissions.map((rp) => rp.permission.name);
+    const tokens = await this.issueTokens(
+      user.id,
+      user.email,
+      user.role.name,
+      permissions,
+    );
+
+    return {
+      message: 'Email verified successfully',
+      data: {
+        user: this.sanitizeUser(user),
+        ...tokens,
+      },
+    };
+  }
+
+  async forgotPassword(email: string) {
+    const normalized = email.toLowerCase();
+    const user = await this.prisma.user.findFirst({
+      where: { email: normalized, deletedAt: null, isActive: true },
+    });
+
+    if (user) {
+      const rawToken = await this.createAuthToken(
+        user.id,
+        AuthTokenType.PASSWORD_RESET,
+        60 * 60 * 1000,
+      );
+      try {
+        await this.emailService.sendPasswordResetEmail({
+          to: user.email,
+          firstName: user.firstName,
+          token: rawToken,
+        });
+      } catch (error) {
+        this.logger.error(
+          `Password reset email failed for ${user.email}: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
+
+    return {
+      message:
+        'If an account exists for that email, password reset instructions have been sent.',
+      data: { email: normalized },
+    };
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const record = await this.findValidToken(dto.token, AuthTokenType.PASSWORD_RESET);
+    const hashed = await bcrypt.hash(dto.password, 12);
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: record.userId },
+        data: { password: hashed },
+      }),
+      this.prisma.authToken.update({
+        where: { id: record.id },
+        data: { usedAt: new Date() },
+      }),
+      this.prisma.authToken.updateMany({
+        where: {
+          userId: record.userId,
+          type: AuthTokenType.PASSWORD_RESET,
+          usedAt: null,
+        },
+        data: { usedAt: new Date() },
+      }),
+      this.prisma.refreshToken.updateMany({
+        where: { userId: record.userId, isRevoked: false },
+        data: { isRevoked: true },
+      }),
+    ]);
+
+    return { message: 'Password reset successful. You can sign in now.', data: null };
+  }
+
+  private async issueAndSendVerification(
+    userId: string,
+    email: string,
+    firstName: string,
+  ) {
+    const rawToken = await this.createAuthToken(
+      userId,
+      AuthTokenType.EMAIL_VERIFICATION,
+      24 * 60 * 60 * 1000,
+    );
+
+    try {
+      await this.emailService.sendVerificationEmail({
+        to: email,
+        firstName,
+        token: rawToken,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Verification email failed for ${email}: ${error instanceof Error ? error.message : error}`,
+      );
+      // Registration still succeeds; user can resend later
+    }
+  }
+
+  private async createAuthToken(
+    userId: string,
+    type: AuthTokenType,
+    ttlMs: number,
+  ): Promise<string> {
+    await this.prisma.authToken.updateMany({
+      where: { userId, type, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
+    const rawToken = randomBytes(32).toString('hex');
+    const hashedToken = this.hashToken(rawToken);
+
+    await this.prisma.authToken.create({
+      data: {
+        userId,
+        type,
+        token: hashedToken,
+        expiresAt: new Date(Date.now() + ttlMs),
+      },
+    });
+
+    return rawToken;
+  }
+
+  private async findValidToken(rawToken: string, type: AuthTokenType) {
+    const hashedToken = this.hashToken(rawToken);
+    const record = await this.prisma.authToken.findFirst({
+      where: {
+        token: hashedToken,
+        type,
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!record) {
+      throw new BadRequestException('Invalid or expired token');
+    }
+
+    return record;
+  }
+
+  private hashToken(rawToken: string) {
+    return createHash('sha256').update(rawToken).digest('hex');
+  }
+
   private async issueTokens(
     userId: string,
     email: string,
@@ -222,7 +482,8 @@ export class AuthService {
     });
 
     const refreshToken = randomBytes(64).toString('hex');
-    const refreshExpiresIn = this.configService.get<string>('jwt.refreshExpiresIn') || '7d';
+    const refreshExpiresIn =
+      this.configService.get<string>('jwt.refreshExpiresIn') || '7d';
     const expiresAt = this.parseExpiry(refreshExpiresIn);
 
     await this.prisma.refreshToken.create({
@@ -235,7 +496,11 @@ export class AuthService {
       },
     });
 
-    return { accessToken, refreshToken, expiresIn: this.configService.get<string>('jwt.expiresIn') };
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: this.configService.get<string>('jwt.expiresIn'),
+    };
   }
 
   private parseExpiry(expiresIn: string): Date {
@@ -243,7 +508,12 @@ export class AuthService {
     if (!match) return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const value = parseInt(match[1], 10);
     const unit = match[2];
-    const multipliers: Record<string, number> = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+    const multipliers: Record<string, number> = {
+      s: 1000,
+      m: 60000,
+      h: 3600000,
+      d: 86400000,
+    };
     return new Date(Date.now() + value * multipliers[unit]);
   }
 

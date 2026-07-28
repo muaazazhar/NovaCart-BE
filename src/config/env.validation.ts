@@ -95,6 +95,22 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   AI_ENABLED?: string;
+
+  @IsOptional()
+  @IsString()
+  FRONTEND_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  RESEND_API_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  MAIL_FROM?: string;
+
+  @IsOptional()
+  @IsString()
+  MAIL_SUPPORT_EMAIL?: string;
 }
 
 export function validate(config: Record<string, unknown>) {

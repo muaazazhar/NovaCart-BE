@@ -54,6 +54,7 @@ async function clearDatabase() {
     'coupons',
     'addresses',
     'refresh_tokens',
+    'auth_tokens',
     'role_permissions',
     'permissions',
     'users',
@@ -189,7 +190,7 @@ async function seedUsers(roleMap: Record<string, string>) {
         lastName,
         phone: `+1555${String(1000000 + i).slice(0, 7)}`,
         isActive: true,
-        isEmailVerified: rand() > 0.2,
+        isEmailVerified: true,
         roleId: roleMap[role],
         cart: { create: {} },
         addresses: {
