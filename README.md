@@ -124,8 +124,8 @@ postman/
 | Script | Description |
 |--------|-------------|
 | `npm run start:dev` | Dev server with watch |
-| `npm run build` | Production build + apply migrations |
-| `npm run start:prod` | Migrate then run compiled app |
+| `npm run build` | Production compile (Nest + seed scripts) |
+| `npm run start:prod` | Apply migrations, then run compiled app |
 | `npm run db:setup` | Migrate + seed PostgreSQL |
 | `npm run prisma:migrate` | Create/apply migrations |
 | `npm run prisma:seed` | Seed demo data |

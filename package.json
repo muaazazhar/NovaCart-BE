@@ -6,7 +6,7 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "build": "nest build && npm run build:seed && npm run prisma:migrate:deploy",
+    "build": "nest build && npm run build:seed",
     "build:seed": "tsc -p tsconfig.seed.json",
     "format": "prettier --write \"src/**/*.ts\" \"prisma/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest build && node dist/main.js",
